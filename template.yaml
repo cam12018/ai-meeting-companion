@@ -1,0 +1,130 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: AI Meeting Companion - Ingestion Pipeline
+
+Globals:
+  Function:
+    Timeout: 900  # 15 minutes for transcription
+    MemorySize: 512
+    Runtime: python3.12
+
+Resources:
+  # Lambda Function for webhook ingestion
+  IngestionFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: meeting-ingestion-handler
+      CodeUri: src/
+      Handler: ingestion_handler.lambda_handler
+      Environment:
+        Variables:
+          AUDIO_BUCKET: !Ref AudioBucket
+          MEETINGS_TABLE: !Ref MeetingsTable
+      Policies:
+        - S3CrudPolicy:
+            BucketName: !Ref AudioBucket
+        - DynamoDBCrudPolicy:
+            TableName: !Ref MeetingsTable
+        - Statement:
+          - Effect: Allow
+            Action:
+              - transcribe:StartTranscriptionJob
+              - transcribe:GetTranscriptionJob
+            Resource: '*'
+        - Statement:
+          - Effect: Allow
+            Action:
+              - bedrock:InvokeModel
+            Resource: '*'
+        - Statement:
+          - Effect: Allow
+            Action:
+              - secretsmanager:GetSecretValue
+            Resource: !Sub 'arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:meeting-companion/*'
+
+  # S3 Bucket for temporary audio storage
+  AudioBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub 'meeting-audio-${AWS::AccountId}'
+      LifecycleConfiguration:
+        Rules:
+          - Id: DeleteAfter1Day
+            Status: Enabled
+            ExpirationInDays: 1
+
+  # DynamoDB Table for meeting insights
+  MeetingsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: meeting-insights
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: meeting_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: meeting_id
+          KeyType: HASH
+
+  # Lambda Function for review UI
+  ReviewFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: meeting-review-ui
+      CodeUri: review-ui/
+      Handler: app.lambda_handler
+      Runtime: python3.12
+      Environment:
+        Variables:
+          MEETINGS_TABLE: !Ref MeetingsTable
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref MeetingsTable
+        - Statement:
+          - Effect: Allow
+            Action:
+              - transcribe:StartTranscriptionJob
+              - transcribe:GetTranscriptionJob
+            Resource: '*'
+        - Statement:
+          - Effect: Allow
+            Action:
+              - bedrock:InvokeModel
+            Resource: '*'
+        - Statement:
+          - Effect: Allow
+            Action:
+              - secretsmanager:GetSecretValue
+            Resource: !Sub 'arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:meeting-companion/*'
+      Events:
+        ReviewApi:
+          Type: Api
+          Properties:
+            Path: /{proxy+}
+            Method: ANY
+        RootApi:
+          Type: Api
+          Properties:
+            Path: /
+            Method: GET
+
+Outputs:
+  WebhookUrl:
+    Description: "Zoom Webhook URL - Use this in Zoom Developer Portal"
+    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/webhook/zoom"
+  
+  ReviewUrl:
+    Description: "Review UI URL - Use this to review meeting insights"
+    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/"
+  
+  AudioBucketName:
+    Description: "S3 Bucket for audio files"
+    Value: !Ref AudioBucket
+  
+  MeetingsTableName:
+    Description: "DynamoDB table for insights"
+    Value: !Ref MeetingsTable
+
+  IngestionFunctionArn:
+    Description: "ARN of the ingestion Lambda function"
+    Value: !GetAtt IngestionFunction.Arn

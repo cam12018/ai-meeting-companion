@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <title>Meeting Review - AI Meeting Companion</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f5f5; }
+        .container { max-width: 1400px; margin: 0 auto; padding: 20px; }
+        .header { background: #1a73e8; color: white; padding: 20px; border-radius: 8px 8px 0 0; }
+        .header h1 { margin-bottom: 10px; }
+        .header p { opacity: 0.9; }
+        .meeting-id { background: rgba(255,255,255,0.2); padding: 5px 10px; border-radius: 4px; font-size: 0.9em; }
+        .content { background: white; padding: 20px; border-radius: 0 0 8px 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .section { margin-bottom: 25px; }
+        .section h2 { color: #333; margin-bottom: 10px; font-size: 1.1em; }
+        .section p { color: #555; line-height: 1.6; }
+        .list-item { background: #f8f9fa; padding: 12px; margin-bottom: 8px; border-radius: 4px; border-left: 3px solid #1a73e8; }
+        .list-item h3 { color: #333; margin-bottom: 5px; font-size: 0.95em; }
+        .list-item p { color: #666; font-size: 0.9em; }
+        .priority-high { border-left-color: #e74c3c; }
+        .priority-medium { border-left-color: #f39c12; }
+        .priority-low { border-left-color: #27ae60; }
+        .ticket-section { margin-bottom: 20px; padding: 20px; background: #fafafa; border: 1px solid #e0e0e0; border-radius: 8px; }
+        .actions { display: flex; gap: 10px; margin-top: 20px; padding-top: 20px; border-top: 1px solid #eee; }
+        .btn { padding: 12px 24px; border: none; border-radius: 6px; cursor: pointer; font-size: 1em; font-weight: 500; transition: all 0.2s; }
+        .btn-primary { background: #1a73e8; color: white; }
+        .btn-primary:hover { background: #155db5; }
+        .btn-secondary { background: #e0e0e0; color: #333; }
+        .btn-secondary:hover { background: #d0d0d0; }
+        .status { padding: 10px 15px; border-radius: 4px; display: inline-block; margin-bottom: 15px; }
+        .status-pending { background: #fff3cd; color: #856404; }
+        .status-approved { background: #d4edda; color: #155724; }
+        .loading { text-align: center; padding: 40px; color: #666; }
+        .error { background: #f8d7da; color: #721c24; padding: 15px; border-radius: 4px; margin-bottom: 20px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎙️ Meeting Review</h1>
+            <p>Review and approve AI-generated insights before they're shared</p>
+        </div>
+        
+        <div class="content">
+            <div id="status" class="status status-pending">⏳ Pending Review</div>
+            
+            <div class="section">
+                <h2>📋 Summary</h2>
+                <p id="summary">Loading...</p>
+            </div>
+            
+            <div class="section">
+                <h2>✅ Decisions</h2>
+                <div id="decisions"></div>
+            </div>
+            
+            <div class="section">
+                <h2>🚧 Blockers</h2>
+                <div id="blockers"></div>
+            </div>
+            
+            <div class="section">
+                <h2>� Action Items (Jira Tickets to be created)</h2>
+                <p style="color: #666; font-size: 0.9em; margin-bottom: 15px;">Review the Jira tickets that will be created</p>
+                <div id="action-items"></div>
+            </div>
+            
+            <div class="actions">
+                <button class="btn btn-secondary" onclick="goBack()">← Back</button>
+                <button class="btn btn-secondary" onclick="toggleAllActions()">📋 Select All</button>
+                <button class="btn btn-primary" onclick="approveMeeting()">✅ Approve Selected</button>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        // Get meeting ID from URL
+        const urlParams = new URLSearchParams(window.location.search);
+        const meetingId = urlParams.get('id');
+        
+        console.log('Meeting ID from URL:', meetingId);
+        console.log('Current URL:', window.location.href);
+        
+        if (!meetingId) {
+            loadPendingMeetings();
+        } else {
+            loadMeeting(meetingId);
+        }
+        
+        async function loadPendingMeetings() {
+            try {
+                console.log('Fetching pending meetings...');
+                const apiUrl = '/Prod/api/meetings?_=' + Date.now();
+                console.log('API URL:', apiUrl);
+                
+                const response = await fetch(apiUrl);
+                console.log('Response status:', response.status);
+                const data = await response.json();
+                console.log('Response data:', data);
+                
+                const contentDiv = document.querySelector('.content');
+                
+                if (!data.meetings || data.meetings.length === 0) {
+                    contentDiv.innerHTML = '<p style="text-align: center; color: #666; padding: 40px;">No pending meetings to review</p>';
+                    return;
+                }
+                
+                let html = '<h2 style="color: #333; margin-bottom: 20px;">Pending Meetings</h2>';
+                html += '<div style="display: flex; flex-direction: column; gap: 10px;">';
+                
+                data.meetings.forEach(meeting => {
+                    html += `
+                        <div class="list-item" style="cursor: pointer;" onclick="window.location.href='?id=${meeting.meeting_id}'">
+                            <h3>${meeting.summary}</h3>
+                            <p style="color: #666; font-size: 0.85em;">${new Date(meeting.timestamp).toLocaleString()}</p>
+                        </div>
+                    `;
+                });
+                
+                html += '</div>';
+                contentDiv.innerHTML = html;
+                
+            } catch (error) {
+                console.error('Error loading pending meetings:', error);
+                document.querySelector('.content').innerHTML = `<p class="error">Error loading pending meetings: ${error.message}</p>`;
+            }
+        }
+        
+        async function loadMeeting(id) {
+            try {
+                const apiUrl = `/Prod/api/meetings/${id}`;
+                console.log('Loading meeting from:', apiUrl);
+                const response = await fetch(apiUrl);
+                console.log('Response status:', response.status);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                const data = await response.json();
+                console.log('Meeting data:', data);
+                
+                if (!data || !data.meeting_id) {
+                    document.querySelector('.content').innerHTML = '<p class="error">Meeting not found</p>';
+                    return;
+                }
+                
+                // Update status
+                document.getElementById('status').className = `status status-${data.status}`;
+                document.getElementById('status').textContent = data.status === 'approved' ? '✅ Approved' : '⏳ Pending Review';
+                
+                // Hide approve button if already approved
+                if (data.status === 'approved') {
+                    const actionsDiv = document.querySelector('.actions');
+                    actionsDiv.innerHTML = `
+                        <div style="text-align: center; padding: 20px; background: #d4edda; color: #155724; border-radius: 6px;">
+                            <p style="font-size: 1.1em; font-weight: 500;">✅ This meeting has already been approved</p>
+                            <p style="color: #666; font-size: 0.9em; margin-top: 5px;">Slack notification sent and Jira tickets created</p>
+                        </div>
+                    `;
+                }
+                
+                // Summary
+                document.getElementById('summary').textContent = data.summary || 'No summary available';
+                
+                // Decisions
+                const decisionsDiv = document.getElementById('decisions');
+                if (data.decisions && data.decisions.length > 0) {
+                    decisionsDiv.innerHTML = data.decisions.map(d => 
+                        `<div class="list-item">${d}</div>`
+                    ).join('');
+                } else {
+                    decisionsDiv.innerHTML = '<p style="color: #999;">No decisions recorded</p>';
+                }
+                
+                // Blockers
+                const blockersDiv = document.getElementById('blockers');
+                if (data.blockers && data.blockers.length > 0) {
+                    blockersDiv.innerHTML = data.blockers.map(b => 
+                        `<div class="list-item">${b}</div>`
+                    ).join('');
+                } else {
+                    blockersDiv.innerHTML = '<p style="color: #999;">No blockers recorded</p>';
+                }
+                
+                // Action Items - Each in its own section
+                const actionItemsDiv = document.getElementById('action-items');
+                if (data.action_items && data.action_items.length > 0) {
+                    actionItemsDiv.innerHTML = data.action_items.map((item, index) => `
+                        <div class="ticket-section">
+                            <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 15px;">
+                                <div>
+                                    <div style="font-weight: 700; color: #1a73e8; font-size: 1.2em; margin-bottom: 2px;">Jira Ticket ${index + 1}</div>
+                                    <div style="font-size: 0.85em; color: #666;">Will be created in project: <strong>SCRUM</strong></div>
+                                </div>
+                                <span style="background: ${item.priority === 'high' ? '#ff6b6b' : item.priority === 'medium' ? '#ffd93d' : '#6bcf7f'}; color: white; padding: 4px 10px; border-radius: 4px; font-size: 0.8em; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">
+                                    ${item.priority || 'medium'}
+                                </span>
+                            </div>
+                            
+                            <div style="display: flex; align-items: flex-start; margin-bottom: 15px;">
+                                <input type="checkbox" id="action-${index}" class="action-checkbox" checked style="margin-right: 12px; margin-top: 2px; transform: scale(1.2);">
+                                <div style="flex: 1;">
+                                    <div style="margin-bottom: 10px;">
+                                        <div style="font-size: 0.9em; color: #666; margin-bottom: 5px; font-weight: 500;">Task Description:</div>
+                                        <textarea class="action-input" data-index="${index}" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px; font-size: 0.95em; min-height: 60px; resize: vertical;">${item.action}</textarea>
+                                    </div>
+                                    
+                                    <div style="display: flex; gap: 20px; font-size: 0.9em; color: #555;">
+                                        <div>
+                                            <span style="font-weight: 500;">👤 Assignee:</span>
+                                            <select class="owner-select" data-index="${index}" style="margin-left: 5px; padding: 3px 8px; border: 1px solid #ddd; border-radius: 4px;">
+                                                <option value="Unassigned" ${item.owner === 'Unassigned' ? 'selected' : ''}>Unassigned</option>
+                                                <option value="Alex" ${item.owner === 'Alex' ? 'selected' : ''}>Alex</option>
+                                                <option value="Sarah" ${item.owner === 'Sarah' ? 'selected' : ''}>Sarah</option>
+                                                <option value="John" ${item.owner === 'John' ? 'selected' : ''}>John</option>
+                                                <option value="Mike" ${item.owner === 'Mike' ? 'selected' : ''}>Mike</option>
+                                                <option value="Team" ${item.owner === 'Team' ? 'selected' : ''}>Team</option>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <span style="font-weight: 500;">📅 Due:</span>
+                                            <select class="due-select" data-index="${index}" style="margin-left: 5px; padding: 3px 8px; border: 1px solid #ddd; border-radius: 4px;">
+                                                <option value="This week">This week</option>
+                                                <option value="Next week">Next week</option>
+                                                <option value="End of month">End of month</option>
+                                                <option value="No deadline">No deadline</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    `).join('');
+                } else {
+                    actionItemsDiv.innerHTML = '<p style="color: #999;">No action items recorded</p>';
+                }
+                
+            } catch (error) {
+                document.querySelector('.content').innerHTML = `<p class="error">Error loading meeting: ${error.message}</p>`;
+            }
+        }
+        
+        async function approveMeeting() {
+            // Disable button to prevent double-clicks
+            const approveBtn = document.querySelector('button[onclick="approveMeeting()"]');
+            approveBtn.disabled = true;
+            approveBtn.textContent = '⏳ Processing...';
+            
+            // Get all action items with their form fields
+            const actionItems = [];
+            const checkboxes = document.querySelectorAll('.action-checkbox');
+            const inputs = document.querySelectorAll('.action-input');
+            const ownerSelects = document.querySelectorAll('.owner-select');
+            const dueSelects = document.querySelectorAll('.due-select');
+            
+            checkboxes.forEach((checkbox, index) => {
+                if (checkbox.checked) {
+                    const input = inputs[index];
+                    const ownerSelect = ownerSelects[index];
+                    const dueSelect = dueSelects[index];
+                    
+                    // Get priority from the colored badge
+                    const ticketSection = checkbox.closest('.ticket-section');
+                    const priorityBadge = ticketSection.querySelector('span[style*="background"]');
+                    let priority = 'medium';
+                    if (priorityBadge) {
+                        const badgeText = priorityBadge.textContent.trim().toLowerCase();
+                        if (badgeText === 'high') priority = 'high';
+                        else if (badgeText === 'low') priority = 'low';
+                        else priority = 'medium';
+                    }
+                    
+                    actionItems.push({
+                        action: input.value,
+                        owner: ownerSelect ? ownerSelect.value : 'Unassigned',
+                        priority: priority,
+                        due: dueSelect ? dueSelect.value : 'This week'
+                    });
+                }
+            });
+            
+            if (actionItems.length === 0) {
+                alert('Please select at least one action item to approve');
+                approveBtn.disabled = false;
+                approveBtn.textContent = '✅ Approve Selected';
+                return;
+            }
+            
+            try {
+                const apiUrl = `/Prod/api/meetings/${meetingId}/approve`;
+                const response = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action_items: actionItems })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    document.getElementById('status').className = 'status status-approved';
+                    document.getElementById('status').textContent = '✅ Approved - Published to Slack & Jira!';
+                    document.querySelector('.actions').innerHTML = `
+                        <div style="text-align: center; padding: 20px; background: #d4edda; color: #155724; border-radius: 6px; width: 100%;">
+                            <p style="font-size: 1.1em; font-weight: 500;">✅ Meeting Approved!</p>
+                            <p style="color: #666; font-size: 0.9em; margin-top: 5px;">Slack notification sent and Jira tickets created</p>
+                            <p style="color: #666; font-size: 0.85em; margin-top: 10px;">${actionItems.length} action item(s) approved</p>
+                        </div>
+                    `;
+                } else {
+                    alert('Error approving meeting: ' + data.error);
+                    approveBtn.disabled = false;
+                    approveBtn.textContent = '✅ Approve Selected';
+                }
+            } catch (error) {
+                alert('Error: ' + error.message);
+                approveBtn.disabled = false;
+                approveBtn.textContent = '✅ Approve Selected';
+            }
+        }
+        
+        function toggleAllActions() {
+            const checkboxes = document.querySelectorAll('.action-checkbox');
+            const allChecked = Array.from(checkboxes).every(cb => cb.checked);
+            
+            checkboxes.forEach(checkbox => {
+                checkbox.checked = !allChecked;
+            });
+            
+            const toggleBtn = document.querySelector('button[onclick="toggleAllActions()"]');
+            toggleBtn.textContent = allChecked ? '📋 Select All' : '📋 Deselect All';
+        }
+        
+        function goBack() {
+            window.location.href = '/Prod/dashboard';
+        }
+    </script>
+</body>
+</html>
