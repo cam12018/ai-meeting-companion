@@ -16,3 +16,5 @@ samconfig.toml
 demo_meeting_script.txt
 docs/ARTICLE_TEMPLATE.md
 docs/ARTICLE_POST.md
+.kiro/
+.vscode/
